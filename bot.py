@@ -80,6 +80,7 @@ WELCOME = (
     "- /set_role — выбрать эмоцию\n"
     "- /set_speed — выбрать скорость\n"
     "- /settings — показать текущие настройки\n"
+    "- /reset — сбросить настройки по умолчанию\n"
     "- /speak_ssml — синтез речи с SSML-разметкой"
 )
 
@@ -96,7 +97,7 @@ HELP = (
     "Используй команду /speak_ssml для синтеза с разметкой SSML.\n"
     "Пример: <code>/speak_ssml &lt;speak&gt;Привет, &lt;break time=\"500ms\"/&gt; мир!&lt;/speak&gt;</code>\n\n"
     "Дополнительные команды:\n"
-    "/set_voice, /set_role, /set_speed, /settings, /speak_ssml"
+    "/set_voice, /set_role, /set_speed, /settings, /reset, /speak_ssml"
 )
 
 # All available voices from Yandex SpeechKit v3
@@ -334,6 +335,27 @@ async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 
+async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reset all user settings to defaults"""
+    user_settings = UserSettings(update.effective_user.id)
+    if user_settings.reset_to_defaults():
+        # Get default values with Russian names for display
+        voice_ru = VOICE_NAMES_RU.get(CONFIG.default_voice, CONFIG.default_voice)
+        role_ru = ROLE_NAMES_RU.get(CONFIG.default_role, CONFIG.default_role) if CONFIG.default_role else "—"
+        speed_ru = SPEED_NAMES_RU.get(CONFIG.default_speed, CONFIG.default_speed)
+        
+        msg = (
+            "✅ Настройки сброшены!\n\n"
+            "<b>Текущие настройки</b>\n"
+            f"Голос: <code>{voice_ru}</code>\n"
+            f"Эмоция: <code>{role_ru}</code>\n"
+            f"Скорость: <code>{speed_ru}</code>"
+        )
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    else:
+        await update.message.reply_text("❌ Ошибка при сбросе настроек. Попробуй позже.")
+
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle inline keyboard button presses"""
     query = update.callback_query
@@ -404,6 +426,7 @@ def main() -> None:
     application.add_handler(CommandHandler("set_role", set_role))
     application.add_handler(CommandHandler("set_speed", set_speed))
     application.add_handler(CommandHandler("settings", settings_cmd))
+    application.add_handler(CommandHandler("reset", reset_cmd))
     application.add_handler(CommandHandler("speak_ssml", speak_ssml))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     application.add_handler(CallbackQueryHandler(button_handler))
@@ -433,6 +456,7 @@ async def handler(event, context):
         application.add_handler(CommandHandler("set_role", set_role))
         application.add_handler(CommandHandler("set_speed", set_speed))
         application.add_handler(CommandHandler("settings", settings_cmd))
+        application.add_handler(CommandHandler("reset", reset_cmd))
         application.add_handler(CommandHandler("speak_ssml", speak_ssml))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         application.add_handler(CallbackQueryHandler(button_handler))

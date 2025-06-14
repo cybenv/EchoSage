@@ -30,6 +30,7 @@ YANDEX_FOLDER_ID=...     # required for SSML support
 - `/help`    – detailed help
 - `/set_voice`, `/set_role`, `/set_speed` – pick voice / emotion / speed
 - `/settings` – show current settings
+- `/reset`   – reset all settings to defaults
 - `/speak_ssml` – synthesize speech with SSML markup
 
 ## SSML Support
