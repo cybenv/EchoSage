@@ -43,10 +43,10 @@ class Config:
     yandex_folder_id: str | None = os.getenv("YANDEX_FOLDER_ID")
 
     # TTS defaults
-    default_voice: str = os.getenv("DEFAULT_VOICE", "alena")
-    default_role: str | None = os.getenv("DEFAULT_ROLE", "neutral")
+    default_voice: str = os.getenv("DEFAULT_VOICE", "marina")
+    default_role: str | None = os.getenv("DEFAULT_ROLE", "friendly")
     default_format: str = os.getenv("DEFAULT_AUDIO_FORMAT", "oggopus")  # oggopus works great for Telegram
-    default_speed: str = os.getenv("DEFAULT_SPEED", "1.0")
+    default_speed: str = os.getenv("DEFAULT_SPEED", "0.95")
 
 
 # Single global instance
