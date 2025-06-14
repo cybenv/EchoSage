@@ -21,6 +21,7 @@ YANDEX_FOLDER_ID=...     # required for SSML support
 # DEFAULT_VOICE=alena
 # DEFAULT_ROLE=neutral
 # DEFAULT_SPEED=1.0
+# DEFAULT_AUDIO_FORMAT=oggopus
 ```
 
 ## Bot commands
