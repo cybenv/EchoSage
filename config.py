@@ -38,6 +38,9 @@ class Config:
     # API key from Yandex Cloud console
     # (service account key works best - no folder_id needed)
     yandex_api_key: str = _env("YANDEX_API_KEY")
+    
+    # Folder ID (required for v1 API SSML support)
+    yandex_folder_id: str | None = os.getenv("YANDEX_FOLDER_ID")
 
     # TTS defaults
     default_voice: str = os.getenv("DEFAULT_VOICE", "alena")

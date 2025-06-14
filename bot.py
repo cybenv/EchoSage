@@ -79,7 +79,8 @@ WELCOME = (
     "- /set_voice — выбрать голос\n"
     "- /set_role — выбрать эмоцию\n"
     "- /set_speed — выбрать скорость\n"
-    "- /settings — показать текущие настройки"
+    "- /settings — показать текущие настройки\n"
+    "- /speak_ssml — синтез речи с SSML-разметкой"
 )
 
 HELP = (
@@ -91,8 +92,11 @@ HELP = (
     f"Эмоция по умолчанию: <code>{ROLE_NAMES_RU.get(CONFIG.default_role, CONFIG.default_role) if CONFIG.default_role else '—'}</code>\n"
     f"Скорость по умолчанию: <code>{SPEED_NAMES_RU.get(CONFIG.default_speed, CONFIG.default_speed)}</code>\n\n"
     "Поддерживаются только русскоязычные сообщения.\n\n"
+    "<b>SSML-разметка</b>\n"
+    "Используй команду /speak_ssml для синтеза с разметкой SSML.\n"
+    "Пример: <code>/speak_ssml &lt;speak&gt;Привет, &lt;break time=\"500ms\"/&gt; мир!&lt;/speak&gt;</code>\n\n"
     "Дополнительные команды:\n"
-    "/set_voice, /set_role, /set_speed, /settings"
+    "/set_voice, /set_role, /set_speed, /settings, /speak_ssml"
 )
 
 # All available voices from Yandex SpeechKit v3
@@ -168,6 +172,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not text.strip():
         return
 
+    # Check if user accidentally sent SSML without the command
+    if text.strip().startswith("<speak>") and text.strip().endswith("</speak>"):
+        await message.reply_text(
+            "Похоже, ты отправила SSML-разметку. Используй команду:\n"
+            "<code>/speak_ssml " + text[:50] + "...</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
     # Checker
     if not any("а" <= ch.lower() <= "я" for ch in text):
         await message.reply_text("Пожалуйста, отправь сообщение на русском.")
@@ -181,7 +194,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         settings = user_settings.load()
         
         audio_bytes = await speech_service.synthesize(
-            text,
+            text=text,
             voice=settings.get("voice"),
             role=settings.get("role"),
             speed=settings.get("speed"),
@@ -189,7 +202,70 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await message.reply_voice(audio_bytes)
     except Exception as exc:
         logger.exception("TTS failed")
-        await message.reply_text("Ошибка при обращении к SpeechKit API. Попробуй позже.")
+        error_msg = str(exc)
+        if "Too long text" in error_msg:
+            await message.reply_text(
+                "Текст слишком длинный. Попробуй отправить более короткое сообщение.\n"
+                "Если ты хотела использовать SSML-разметку, используй команду /speak_ssml"
+            )
+        else:
+            await message.reply_text("Ошибка при обращении к SpeechKit API. Попробуй позже.")
+
+
+async def speak_ssml(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle SSML synthesis command"""
+    message = update.message
+    assert message
+    
+    # Get the SSML content after the command
+    if not context.args:
+        await message.reply_text(
+            "Пожалуйста, укажи SSML-разметку после команды.\n"
+            "Пример: <code>/speak_ssml &lt;speak&gt;Привет, &lt;break time=\"500ms\"/&gt; мир!&lt;/speak&gt;</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    
+    ssml_text = " ".join(context.args)
+    
+    # Basic validation - check if it starts with <speak> and ends with </speak>
+    if not ssml_text.strip().startswith("<speak>") or not ssml_text.strip().endswith("</speak>"):
+        await message.reply_text(
+            "SSML-разметка должна быть обёрнута в теги &lt;speak&gt;...&lt;/speak&gt;\n"
+            "Пример: <code>&lt;speak&gt;Ваш текст здесь&lt;/speak&gt;</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    
+    await message.chat.send_action("upload_voice")
+    
+    try:
+        # Saved preferences
+        user_settings = UserSettings(update.effective_user.id)
+        settings = user_settings.load()
+        
+        audio_bytes = await speech_service.synthesize(
+            ssml=ssml_text,
+            voice=settings.get("voice"),
+            role=settings.get("role"),
+            speed=settings.get("speed"),
+        )
+        await message.reply_voice(audio_bytes)
+    except Exception as exc:
+        logger.exception("SSML TTS failed")
+        error_msg = str(exc)
+        if "YANDEX_FOLDER_ID" in error_msg:
+            await message.reply_text(
+                "Для использования SSML необходимо указать YANDEX_FOLDER_ID в файле .env\n"
+                "Получить folder_id следует в консоли Yandex Cloud."
+            )
+        elif "400" in error_msg:
+            await message.reply_text(
+                "Ошибка в SSML-разметке. Проверь правильность синтаксиса.\n"
+                "Подробнее о SSML: https://yandex.cloud/ru/docs/speechkit/tts/ssml"
+            )
+        else:
+            await message.reply_text("Ошибка при обращении к SpeechKit API. Попробуй позже.")
 
 
 def _build_keyboard(options: list[str], prefix: str) -> InlineKeyboardMarkup:
@@ -328,6 +404,7 @@ def main() -> None:
     application.add_handler(CommandHandler("set_role", set_role))
     application.add_handler(CommandHandler("set_speed", set_speed))
     application.add_handler(CommandHandler("settings", settings_cmd))
+    application.add_handler(CommandHandler("speak_ssml", speak_ssml))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))
@@ -356,6 +433,7 @@ async def handler(event, context):
         application.add_handler(CommandHandler("set_role", set_role))
         application.add_handler(CommandHandler("set_speed", set_speed))
         application.add_handler(CommandHandler("settings", settings_cmd))
+        application.add_handler(CommandHandler("speak_ssml", speak_ssml))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         application.add_handler(CallbackQueryHandler(button_handler))
         application.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))

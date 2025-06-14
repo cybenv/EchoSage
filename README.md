@@ -15,6 +15,7 @@ A no-frills Telegram bot that turns Russian text messages into voice with Yandex
 ```
 TELEGRAM_BOT_TOKEN=...   # required
 YANDEX_API_KEY=...       # required
+YANDEX_FOLDER_ID=...     # required for SSML support
 
 # Optional (defaults shown)
 # DEFAULT_VOICE=alena
@@ -28,6 +29,18 @@ YANDEX_API_KEY=...       # required
 - `/help`    – detailed help
 - `/set_voice`, `/set_role`, `/set_speed` – pick voice / emotion / speed
 - `/settings` – show current settings
+- `/speak_ssml` – synthesize speech with SSML markup
+
+## SSML Support
+
+The bot now supports SSML (Speech Synthesis Markup Language) for fine-grained control over speech synthesis. Use the `/speak_ssml` command followed by your SSML-formatted text.
+
+Example:
+```
+/speak_ssml <speak>Вот несколько примеров использования SSML. Вы можете добавить в текст паузу любой длины:<break time="2s"/> та-дааам!</speak>
+```
+
+Learn more about SSML tags in the [Yandex SpeechKit documentation](https://yandex.cloud/ru/docs/speechkit/tts/api/tts-ssml).
 
 ## Deployment
 
