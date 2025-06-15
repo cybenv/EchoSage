@@ -337,12 +337,19 @@ async def toggle_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def demo_markup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Demonstrate TTS markup capabilities"""
-    demo_texts = [
+    # Original examples (for TTS processing)
+    orig_examples = [
         ("Без разметки", "Привет, мир! Как дела?"),
         ("С паузами", "Привет, sil<[300]> мир! sil<[500]> Как дела?"),
         ("Паузы после знаков", "Стоп! sil<[300]> Подумай об этом."),
         ("Поэзия с паузами", "Унылая пора! sil<[300]> Очей очарованье!"),
         ("Ударения в словах", "Зам+ок на двери и з+амок короля"),
+    ]
+    
+    # Properly escape brackets in examples for Telegram's HTML parser
+    demo_texts = [
+        (title, text.replace("<", "&lt;").replace(">", "&gt;")) 
+        for title, text in orig_examples
     ]
     
     msg = "<b>Примеры TTS разметки v3:</b>\n\n"
