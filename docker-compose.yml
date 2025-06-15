@@ -1,0 +1,9 @@
+version: "3"
+
+services:
+  echosage:
+    build: .
+    env_file: .env
+    restart: always
+    volumes:
+      - ./:/app

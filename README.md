@@ -78,6 +78,47 @@ For backward compatibility, the bot still supports SSML via the `/speak_ssml` co
 
 Running on Yandex Cloud Functions? Use the `handler` entry-point inside `bot.py` and set the same environment variables.
 
+## Launching via Docker
+
+Running EchoSage in a Docker container is a great way to ensure a consistent environment and simplify deployment. Here's how you can get started:
+
+### Using Docker Directly
+
+If you prefer using plain Docker commands, follow these steps:
+
+```bash
+# Build the Docker image for EchoSage
+docker build -t echosage-bot .
+
+# Run the container in the background, loading environment variables from your .env file
+docker run -d --env-file .env echosage-bot
+```
+
+### Using Docker Compose (Recommended)
+
+For an even easier experience, we recommend using Docker Compose. It handles building and running the container with a single command:
+
+```bash
+# Build and start the container in the background
+docker-compose up --build -d
+
+# Check the logs to see what's happening
+docker-compose logs -f echosage
+```
+
+### Stopping the Bot
+
+When you want to stop the bot, use one of these methods depending on how you started it:
+
+```bash
+# If you used plain Docker
+docker ps  # Find your container ID
+docker stop <container_id>
+
+# If you used Docker Compose
+docker-compose down
+```
+
 ## License
 
 Public domain (see `LICENSE`). Enjoy! 
