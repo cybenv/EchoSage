@@ -81,7 +81,9 @@ WELCOME = (
     "- /set_speed — выбрать скорость\n"
     "- /settings — показать текущие настройки\n"
     "- /reset — сбросить настройки по умолчанию\n"
-    "- /speak_ssml — синтез речи с SSML-разметкой"
+    "- /speak_ssml — синтез речи с SSML-разметкой\n"
+    "- /toggle_format — включить/выключить автоформатирование\n"
+    "- /demo_markup — примеры TTS разметки"
 )
 
 HELP = (
@@ -97,7 +99,7 @@ HELP = (
     "Используй команду /speak_ssml для синтеза с разметкой SSML.\n"
     "Пример: <code>/speak_ssml &lt;speak&gt;Привет, &lt;break time=\"500ms\"/&gt; мир!&lt;/speak&gt;</code>\n\n"
     "Дополнительные команды:\n"
-    "/set_voice, /set_role, /set_speed, /settings, /reset, /speak_ssml"
+    "/set_voice, /set_role, /set_speed, /settings, /reset, /speak_ssml, /toggle_format, /demo_markup"
 )
 
 # All available voices from Yandex SpeechKit v3
@@ -199,6 +201,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             voice=settings.get("voice"),
             role=settings.get("role"),
             speed=settings.get("speed"),
+            auto_format=settings.get("auto_format"),
+            use_markup=settings.get("use_markup"),
         )
         await message.reply_voice(audio_bytes)
     except Exception as exc:
@@ -302,7 +306,7 @@ async def set_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     voice_ru = VOICE_NAMES_RU.get(current_voice, current_voice)
     
     await update.message.reply_text(
-        f"Эмоция для голоса: '{voice_ru}'",
+        f"Эмоция для голоса: {voice_ru}",
         reply_markup=_build_keyboard(available_roles, "role"),
     )
 
@@ -310,6 +314,53 @@ async def set_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def set_speed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Change speech speed"""
     await update.message.reply_text("Скорость речи:", reply_markup=_build_keyboard(SPEEDS, "speed"))
+
+
+async def toggle_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggle auto-formatting feature"""
+    user_settings = UserSettings(update.effective_user.id)
+    settings = user_settings.load()
+    
+    # Toggle the current state
+    current = settings.get("auto_format", CONFIG.enable_auto_format)
+    new_state = not current
+    
+    user_settings.update(auto_format=new_state)
+    
+    status = "включено ✅" if new_state else "выключено ❌"
+    await update.message.reply_text(
+        f"<b>Автоформатирование {status}</b>\n\n"
+        f"{'Теперь я буду автоматически добавлять паузы и ударения для естественного звучания речи.' if new_state else 'Текст будет синтезироваться без дополнительной обработки.'}",
+        parse_mode=ParseMode.HTML
+    )
+
+
+async def demo_markup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Demonstrate TTS markup capabilities"""
+    demo_texts = [
+        ("Без разметки", "Привет, мир! Как дела?"),
+        ("С паузами", "Привет, sil<[300]> мир! sil<[500]> Как дела?"),
+        ("Паузы после знаков", "Стоп! sil<[300]> Подумай об этом."),
+        ("Поэзия с паузами", "Унылая пора! sil<[300]> Очей очарованье!"),
+        ("Ударения в словах", "Зам+ок на двери и з+амок короля"),
+    ]
+    
+    msg = "<b>Примеры TTS разметки v3:</b>\n\n"
+    
+    for title, text in demo_texts:
+        msg += f"<b>{title}:</b>\n<code>{text}</code>\n\n"
+    
+    msg += (
+        "<b>Доступные элементы разметки:</b>\n"
+        "• <code>sil&lt;[мс]&gt;</code> — пауза заданной длительности (100-5000мс)\n"
+        "• <code>+</code> — ударение на гласной (напр: м+олоко)\n"
+        "• <code>&lt;[size]&gt;</code> — контекстная пауза (tiny/small/medium/large/huge)\n\n"
+        "<b>Важно:</b> Разметка работает только при включенном TTS v3.\n"
+        "Текущие настройки можно проверить командой /settings\n\n"
+        "Попробуй отправить текст с разметкой!"
+    )
+    
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 
 async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -320,6 +371,8 @@ async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     voice = settings.get("voice", CONFIG.default_voice)
     role = settings.get("role", CONFIG.default_role)
     speed = settings.get("speed", CONFIG.default_speed)
+    auto_format = settings.get("auto_format", CONFIG.enable_auto_format)
+    use_markup = settings.get("use_markup", CONFIG.use_tts_markup)
     
     # Russian names for display
     voice_ru = VOICE_NAMES_RU.get(voice, voice)
@@ -330,7 +383,9 @@ async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "<b>Текущие настройки</b>\n"
         f"Голос: <code>{voice_ru}</code>\n"
         f"Эмоция: <code>{role_ru}</code>\n"
-        f"Скорость: <code>{speed_ru}</code>"
+        f"Скорость: <code>{speed_ru}</code>\n"
+        f"Автоформатирование: <code>{'✅ Вкл' if auto_format else '❌ Выкл'}</code>\n"
+        f"TTS разметка: <code>{'✅ Вкл' if use_markup else '❌ Выкл'}</code>"
     )
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
@@ -349,7 +404,9 @@ async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "<b>Текущие настройки</b>\n"
             f"Голос: <code>{voice_ru}</code>\n"
             f"Эмоция: <code>{role_ru}</code>\n"
-            f"Скорость: <code>{speed_ru}</code>"
+            f"Скорость: <code>{speed_ru}</code>\n"
+            f"Автоформатирование: <code>{'✅ Вкл' if CONFIG.enable_auto_format else '❌ Выкл'}</code>\n"
+            f"TTS разметка: <code>{'✅ Вкл' if CONFIG.use_tts_markup else '❌ Выкл'}</code>"
         )
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
     else:
@@ -425,9 +482,11 @@ def main() -> None:
     application.add_handler(CommandHandler("set_voice", set_voice))
     application.add_handler(CommandHandler("set_role", set_role))
     application.add_handler(CommandHandler("set_speed", set_speed))
+    application.add_handler(CommandHandler("toggle_format", toggle_format))
     application.add_handler(CommandHandler("settings", settings_cmd))
     application.add_handler(CommandHandler("reset", reset_cmd))
     application.add_handler(CommandHandler("speak_ssml", speak_ssml))
+    application.add_handler(CommandHandler("demo_markup", demo_markup))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))
@@ -455,9 +514,11 @@ async def handler(event, context):
         application.add_handler(CommandHandler("set_voice", set_voice))
         application.add_handler(CommandHandler("set_role", set_role))
         application.add_handler(CommandHandler("set_speed", set_speed))
+        application.add_handler(CommandHandler("toggle_format", toggle_format))
         application.add_handler(CommandHandler("settings", settings_cmd))
         application.add_handler(CommandHandler("reset", reset_cmd))
         application.add_handler(CommandHandler("speak_ssml", speak_ssml))
+        application.add_handler(CommandHandler("demo_markup", demo_markup))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         application.add_handler(CallbackQueryHandler(button_handler))
         application.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))
