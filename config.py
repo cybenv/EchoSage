@@ -47,6 +47,17 @@ class Config:
     default_role: str | None = os.getenv("DEFAULT_ROLE", "friendly")
     default_format: str = os.getenv("DEFAULT_AUDIO_FORMAT", "oggopus")  # oggopus works great for Telegram
     default_speed: str = os.getenv("DEFAULT_SPEED", "0.95")
+    
+    # TTS Version Settings
+    tts_version: str = os.getenv("YANDEX_TTS_VERSION", "3")  # Use v3 by default
+    
+    # GPT Settings
+    gpt_model: str = os.getenv("GPT_MODEL", "yandexgpt-pro:rc")  # Using Release Candidate by default
+    enable_auto_format: bool = os.getenv("ENABLE_AUTO_FORMAT", "true").lower() == "true"
+    max_pause_ms: int = int(os.getenv("MAX_PAUSE_MS", "5000"))
+    
+    # Feature flags
+    use_tts_markup: bool = os.getenv("USE_TTS_MARKUP", "true").lower() == "true"
 
 
 # Single global instance

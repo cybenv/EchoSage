@@ -9,8 +9,10 @@ import aiohttp
 import logging
 import json
 import base64
+import re
 
 from config import CONFIG
+from gpt_formatter import TTSPreprocessor
 
 # v3 API endpoint - much better than v1!
 TTS_API_URL = "https://tts.api.cloud.yandex.net/tts/v3/utteranceSynthesis"
@@ -31,6 +33,8 @@ class TTSRequest:
     format: str = "oggopus"
     sample_rate_hz: int = 48000  # only matters for raw formats like lpcm
     speed: str | None = None  # "0.8", "1.0", "1.2"
+    use_markup: bool = CONFIG.use_tts_markup  # Enable TTS v3 markup by default
+    auto_format: bool = CONFIG.enable_auto_format  # Enable GPT formatting
 
     def __post_init__(self):
         """Validate that either text or ssml is provided, but not both"""
@@ -42,6 +46,29 @@ class TTSRequest:
     def is_ssml(self) -> bool:
         """Check if this request is for SSML synthesis"""
         return self.ssml is not None
+    
+    def validate_markup(self) -> None:
+        """Validate TTS markup in text.
+        
+        Raises:
+            ValueError: If SSML is detected or markup is invalid
+        """
+        if not self.text:
+            return
+            
+        # First, remove valid TTS markup to check for SSML
+        temp_text = re.sub(r'sil<\[\d+\]>', '', self.text)
+        
+        # Check for SSML tags (not allowed in v3 with markup)
+        if re.search(r'<[^>]+>', temp_text, re.IGNORECASE):
+            raise ValueError("SSML not supported in v3. Use TTS markup instead.")
+        
+        # Validate silence markers
+        silence_pattern = r'sil<\[(\d+)\]>'
+        for match in re.finditer(silence_pattern, self.text):
+            duration = int(match.group(1))
+            if duration < 100 or duration > 5000:
+                raise ValueError(f"Silence duration must be between 100-5000ms, got {duration}ms")
 
     def to_payload_v3(self) -> dict[str, Any]:
         """Build the JSON that SpeechKit v3 expects.
@@ -81,6 +108,10 @@ class TTSRequest:
             "text": self.text,
             "lang": self.lang,
         }
+        
+        # Enable markup parsing if use_markup is True
+        if self.use_markup:
+            payload["unsafeMode"] = True
         
         if hints:
             payload["hints"] = hints
@@ -131,10 +162,13 @@ class SpeechService:
             "Authorization": f"Api-Key {CONFIG.yandex_api_key}",
             "Content-Type": "application/json"
         }
+        # Initialize GPT formatter
+        self._formatter = TTSPreprocessor()
 
     async def synthesize(self, text: str | None = None, ssml: str | None = None, 
                         voice: str | None = None, role: str | None = None, 
-                        speed: str | None = None) -> bytes:
+                        speed: str | None = None, auto_format: bool | None = None,
+                        use_markup: bool | None = None) -> bytes:
         """Convert text or SSML to speech audio.
         
         Args:
@@ -143,18 +177,35 @@ class SpeechService:
             voice: Voice to use
             role: Emotion/role to use
             speed: Speech speed
+            auto_format: Whether to use GPT formatting (overrides config)
+            use_markup: Whether to enable TTS markup parsing (overrides config)
             
         Returns:
             Raw audio bytes ready to send to Telegram.
         """
+        # Create request with explicit auto_format/use_markup if provided
         req = TTSRequest(
-            text=text,
-            ssml=ssml,
-            voice=voice or CONFIG.default_voice,
-            role=role or CONFIG.default_role,
+            text=text, 
+            ssml=ssml, 
+            voice=voice or CONFIG.default_voice, 
+            role=role or CONFIG.default_role, 
             speed=speed or CONFIG.default_speed,
             format=CONFIG.default_format,
+            auto_format=auto_format if auto_format is not None else CONFIG.enable_auto_format,
+            use_markup=use_markup if use_markup is not None else CONFIG.use_tts_markup
         )
+        
+        # Apply GPT formatting if enabled and using text (not SSML)
+        if req.text and req.auto_format and req.use_markup:
+            try:
+                req.text = await self._formatter.format_text(req.text)
+                logger.info(f"Applied TTS formatting: {req.text[:100]}...")
+            except Exception as e:
+                logger.error(f"Formatting error: {e}, using original text")
+        
+        # Validate markup if enabled
+        if req.use_markup:
+            req.validate_markup()
         
         if req.is_ssml():
             return await self._synthesize_v1(req)

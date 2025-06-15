@@ -16,12 +16,6 @@ A no-frills Telegram bot that turns Russian text messages into voice with Yandex
 TELEGRAM_BOT_TOKEN=...   # required
 YANDEX_API_KEY=...       # required
 YANDEX_FOLDER_ID=...     # required for SSML support
-
-# Optional (defaults shown)
-# DEFAULT_VOICE=alena
-# DEFAULT_ROLE=neutral
-# DEFAULT_SPEED=1.0
-# DEFAULT_AUDIO_FORMAT=oggopus
 ```
 
 ## Bot commands
@@ -31,18 +25,54 @@ YANDEX_FOLDER_ID=...     # required for SSML support
 - `/set_voice`, `/set_role`, `/set_speed` – pick voice / emotion / speed
 - `/settings` – show current settings
 - `/reset`   – reset all settings to defaults
-- `/speak_ssml` – synthesize speech with SSML markup
+- `/speak_ssml` – synthesize speech with SSML markup (v1 API)
+- `/toggle_format` – enable/disable AI-powered text formatting
+- `/demo_markup` – see examples of TTS v3 markup
 
-## SSML Support
+## TTS v3 Markup Support
 
-The bot now supports SSML (Speech Synthesis Markup Language) for fine-grained control over speech synthesis. Use the `/speak_ssml` command followed by your SSML-formatted text.
+The bot supports Yandex SpeechKit v3's native TTS markup for natural speech synthesis:
 
-Example:
+### Markup Elements:
+- `sil<[ms]>` — explicit pause with duration (100-5000ms) 
+- `+` — lexical stress on vowel (e.g., м+олоко)
+- `<[size]>` — context-dependent pause (tiny/small/medium/large/huge)
+- `**word**` — emphasis on word
+
+### Examples:
+```
+Привет, sil<[300]> мир!                         # 300ms pause
+Стоп! sil<[500]> Подумай об этом.              # 500ms pause after exclamation
+Унылая пора! sil<[300]> Очей очарованье!       # Poetry with pauses
+Зам+ок на двери и з+амок короля                # Different stress for different meanings
+```
+
+### Auto-Formatting with AI
+
+When enabled, the bot uses YandexGPT to automatically add appropriate pauses and stress markers:
+
+**Input:** "Мороз и солнце; день чудесный!"  
+**Output:** "Мороз и солнце; sil<[200]> день чудесный!"
+
+Toggle this feature with `/toggle_format`.
+
+## SSML Support (Legacy)
+
+For backward compatibility, the bot still supports SSML via the `/speak_ssml` command:
+
 ```
 /speak_ssml <speak>Вот несколько примеров использования SSML. Вы можете добавить в текст паузу любой длины:<break time="2s"/> та-дааам!</speak>
 ```
 
-Learn more about SSML tags in the [Yandex SpeechKit documentation](https://yandex.cloud/ru/docs/speechkit/tts/api/tts-ssml).
+**Note:** SSML uses the v1 API and is ~3× slower than v3 markup. Use TTS markup for better performance.
+
+## Performance Comparison
+
+| Feature | SSML (v1) | TTS Markup (v3) |
+|---------|-----------|-----------------|
+| Latency | ~1.8s | ~0.6s |
+| Syntax | XML tags | Simple markers |
+| AI Format | NO | YES |
 
 ## Deployment
 
