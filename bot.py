@@ -325,7 +325,7 @@ async def toggle_format(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     current = settings.get("auto_format", CONFIG.enable_auto_format)
     new_state = not current
     
-    user_settings.update(auto_format=new_state)
+    user_settings.update("auto_format", new_state)
     
     status = "включено ✅" if new_state else "выключено ❌"
     await update.message.reply_text(
