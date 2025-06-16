@@ -11,9 +11,8 @@ from config import CONFIG
 
 logger = logging.getLogger(__name__)
 
-# YandexGPT API endpoint
+# YandexGPT API
 GPT_API_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
-
 
 class TTSPreprocessor:
     """Formats Russian text for Yandex TTS v3 using AI and rule-based processing"""
@@ -116,13 +115,13 @@ class TTSPreprocessor:
             "modelUri": f"gpt://{CONFIG.yandex_folder_id}/{CONFIG.gpt_model}",
             "completionOptions": {
                 "stream": False,
-                "temperature": 0.3,
+                "temperature": 0.1,
                 "maxTokens": len(text) * 2
             },
             "messages": [
                 {
                     "role": "system",
-                    "text": "Ты - эксперт по форматированию текста для синтеза речи. Твоя задача - добавить паузы и ударения для естественного звучания."
+                    "text": "Ты — эксперт по подготовке текстов для синтеза речи с использованием технологий Yandex. Твоя задача — оптимизировать текст так, чтобы синтезированная речь звучала естественно и чётко, соответствуя интонациям живого общения и улучшая восприятие информации слушателем."
                 },
                 {
                     "role": "user", 
@@ -191,7 +190,7 @@ class TTSPreprocessor:
                     return False
             
             # Check that sil<[t]> markers don't appear in invalid positions
-            if re.search(r'sil<\[\d+\]>\s*sil<\[\d+\]>', text) or text.startswith('sil<[200]>'):
+            if re.search(r'sil<\[\d+\]>\s*sil<\[\d+\]>', text) or re.search(r'^sil<\[\d+\]>', text):
                 return False
             
             return True
