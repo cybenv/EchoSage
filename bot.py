@@ -44,7 +44,6 @@ VOICE_NAMES_RU = {
     "marina": "Марина",
     "omazh": "Омаж",
     "zahar": "Захар",
-    "john": "Джон",
 }
 
 ROLE_NAMES_RU = {
@@ -120,8 +119,6 @@ VOICES = [
     "marina",
     "omazh",
     "zahar",
-    # John speaks English. Although Russian is good too.
-    "john",
 ]
 
 # Not all voices support all emotions - this maps what's actually available
@@ -141,7 +138,6 @@ VOICE_ROLE_MAP: dict[str, list[str]] = {
     "marina": ["neutral", "whisper", "friendly"],
     "omazh": ["neutral", "evil"],
     "zahar": ["neutral", "good"],
-    "john": ["neutral"],
 }
 
 ROLES = [
