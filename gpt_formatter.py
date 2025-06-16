@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import logging
-from typing import Optional
+from typing import Optional, Dict, List, Any, Union
 import aiohttp
 import json
 
@@ -23,14 +23,14 @@ class TTSPreprocessor:
         Args:
             api_key: Yandex Cloud API key. If not provided, uses CONFIG.
         """
-        self.api_key = api_key or CONFIG.yandex_api_key
-        self.headers = {
+        self.api_key: str = api_key or CONFIG.yandex_api_key
+        self.headers: Dict[str, str] = {
             "Authorization": f"Api-Key {self.api_key}",
             "Content-Type": "application/json"
         }
         
         # Simple punctuation rules for basic processing
-        self.simple_rules = {
+        self.simple_rules: Dict[str, str] = {
             r"([.!?])\s+": r"\1 sil<[300]> ",  # Add pause after sentence ending punctuation
             r";\s+": r"; sil<[200]> ",  # Pause after semicolon
             r"([,:])\s+": r"\1 ",  # Keep comma and colon spacing
@@ -111,7 +111,7 @@ class TTSPreprocessor:
 
 Отформатированный текст:"""
 
-        payload = {
+        payload: Dict[str, Any] = {
             "modelUri": f"gpt://{CONFIG.yandex_folder_id}/{CONFIG.gpt_model}",
             "completionOptions": {
                 "stream": False,
@@ -151,7 +151,7 @@ class TTSPreprocessor:
         - Add pauses after semicolons and conjunctions
         - Add pauses after commas in long clauses
         """
-        formatted = text
+        formatted: str = text
         
         # Add pauses after sentence endings
         formatted = re.sub(r'([.!?])\s+', r'\1 sil<[300]> ', formatted)
@@ -160,11 +160,11 @@ class TTSPreprocessor:
         formatted = re.sub(r';\s+', r'; sil<[200]> ', formatted)
         
         # Add pauses after conjunctions with commas
-        conjunction_pattern = r',\s+(но|а|однако|хотя|чтобы|если|когда|пока|после того как)\s+'
+        conjunction_pattern: str = r',\s+(но|а|однако|хотя|чтобы|если|когда|пока|после того как)\s+'
         formatted = re.sub(conjunction_pattern, r', sil<[200]> \1 ', formatted)
         
         # Add pauses after long introductory phrases
-        intro_pattern = r'^(Когда|После того как|Если|Хотя|Несмотря на то что)[^,]+,\s+'
+        intro_pattern: str = r'^(Когда|После того как|Если|Хотя|Несмотря на то что)[^,]+,\s+'
         formatted = re.sub(intro_pattern, lambda m: m.group(0).rstrip() + ' sil<[200]> ', formatted)
         
         # Clean up multiple spaces
@@ -176,16 +176,16 @@ class TTSPreprocessor:
         """Validate that markup is correctly formatted"""
         try:
             # First, remove valid TTS markup to check for SSML
-            temp_text = re.sub(r'sil<\[\d+\]>', '', text)
+            temp_text: str = re.sub(r'sil<\[\d+\]>', '', text)
             
             # Check for invalid SSML tags (not applicable for v3)
             if re.search(r'<[^>]+>', temp_text):
                 return False
             
             # Check silence markers are properly formatted
-            silence_pattern = r'sil<\[(\d+)\]>'  
+            silence_pattern: str = r'sil<\[(\d+)\]>'  
             for match in re.finditer(silence_pattern, text):
-                duration = int(match.group(1))
+                duration: int = int(match.group(1))
                 if duration < 100 or duration > 5000:
                     return False
             

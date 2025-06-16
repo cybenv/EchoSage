@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 import aiohttp
@@ -70,7 +70,7 @@ class TTSRequest:
             if duration < 100 or duration > 5000:
                 raise ValueError(f"Silence duration must be between 100-5000ms, got {duration}ms")
 
-    def to_payload_v3(self) -> dict[str, Any]:
+    def to_payload_v3(self) -> Dict[str, Any]:
         """Build the JSON that SpeechKit v3 expects.
         
         Note: Each hint must be its own object with a single field.
@@ -79,7 +79,7 @@ class TTSRequest:
         if self.ssml:
             raise ValueError("SSML is not supported in v3 API")
             
-        hints: list[dict[str, Any]] = []
+        hints: List[Dict[str, Any]] = []
         
         if self.voice:
             hints.append({"voice": self.voice})
@@ -92,7 +92,7 @@ class TTSRequest:
             hints.append({"speed": str(self.speed)})
 
         # Audio format specification
-        output_audio_spec: dict[str, Any] = {}
+        output_audio_spec: Dict[str, Any] = {}
         if self.format == "oggopus":
             output_audio_spec["containerAudio"] = {
                 "containerAudioType": "OGG_OPUS"
@@ -104,7 +104,7 @@ class TTSRequest:
                 "sampleRateHertz": self.sample_rate_hz,
             }
 
-        payload: dict[str, Any] = {
+        payload: Dict[str, Any] = {
             "text": self.text,
             "lang": self.lang,
         }
@@ -121,7 +121,7 @@ class TTSRequest:
         logger.info("TTS v3 payload: %s", payload)
         return payload
 
-    def to_form_data_v1(self) -> dict[str, str]:
+    def to_form_data_v1(self) -> Dict[str, str]:
         """Build form data for SpeechKit v1 API"""
         data = {
             "lang": self.lang,
@@ -158,12 +158,12 @@ class SpeechService:
 
     def __init__(self) -> None:
         # Not actually used anymore, kept for compatibility
-        self._headers = {
+        self._headers: Dict[str, str] = {
             "Authorization": f"Api-Key {CONFIG.yandex_api_key}",
             "Content-Type": "application/json"
         }
         # Initialize GPT formatter
-        self._formatter = TTSPreprocessor()
+        self._formatter: TTSPreprocessor = TTSPreprocessor()
 
     async def synthesize(self, text: str | None = None, ssml: str | None = None, 
                         voice: str | None = None, role: str | None = None, 

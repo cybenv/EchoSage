@@ -4,6 +4,7 @@ This file acts as the entry point for the gunicorn server defined in Dockerfile.
 """
 import json
 import logging
+from typing import Any, Tuple, Union
 from flask import Flask, request, jsonify
 
 from bot import handler
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 @app.route("/", methods=["POST"])
-def webhook():
+def webhook() -> Union[Tuple[Any, int], Any]:
     """Process incoming webhook requests from Telegram"""
     try:
         # Log the incoming request
@@ -42,7 +43,7 @@ def webhook():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/", methods=["GET"])
-def health_check():
+def health_check() -> Tuple[Any, int]:
     """Check endpoint"""
     return jsonify({"status": "ok", "message": "EchoSage bot is running"}), 200
 

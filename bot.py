@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Final
+from typing import Final, Any, Dict, List
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -29,7 +29,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Russian translations UI
-VOICE_NAMES_RU = {
+VOICE_NAMES_RU: Dict[str, str] = {
     "alena": "Алёна",
     "alexander": "Александр",
     "anton": "Антон",
@@ -46,7 +46,7 @@ VOICE_NAMES_RU = {
     "zahar": "Захар",
 }
 
-ROLE_NAMES_RU = {
+ROLE_NAMES_RU: Dict[str, str] = {
     "neutral": "Покой",
     "good": "Добро",
     "evil": "Злоба",
@@ -55,14 +55,14 @@ ROLE_NAMES_RU = {
     "whisper": "Шёпот",
 }
 
-SPEED_NAMES_RU = {
+SPEED_NAMES_RU: Dict[str, str] = {
     "0.8": "Медленная",
     "1.0": "Обычная",
     "1.2": "Быстрая",
 }
 
 # Used for inline messages when settings change
-SETTING_NAMES_RU = {
+SETTING_NAMES_RU: Dict[str, str] = {
     "voice": "голос",
     "role": "эмоцию",
     "speed": "скорость",
@@ -123,7 +123,7 @@ VOICES = [
 
 # Not all voices support all emotions - this maps what's actually available
 # If a voice isn't here, it only supports "neutral"
-VOICE_ROLE_MAP: dict[str, list[str]] = {
+VOICE_ROLE_MAP: Dict[str, List[str]] = {
     "alena": ["neutral", "good"],
     "alexander": ["neutral", "good"],
     "anton": ["neutral", "good"],
@@ -499,7 +499,7 @@ def main() -> None:
 
 
 # Entry point for Yandex Cloud Functions
-async def handler(event, context):
+async def handler(event: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
     """Webhook handler for serverless deployment.
     
     This is what Yandex Cloud Functions calls when a Telegram update comes in.

@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Look for .env file in current directory or parent directories
-_dotenv_path = None
+_dotenv_path: Path | None = None
 for parent in Path(__file__).resolve().parents:
     maybe_env = parent / ".env"
     if maybe_env.exists():
@@ -25,7 +25,7 @@ def _env(key: str, default: str | None = None, required: bool = True) -> str:
     value = os.getenv(key, default)
     if required and not value:
         raise RuntimeError(f"Environment variable '{key}' must be set.")
-    return value  # type: ignore
+    return value if value is not None else ""
 
 
 @dataclass(frozen=True, slots=True)
