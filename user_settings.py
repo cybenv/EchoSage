@@ -32,23 +32,41 @@ class UserSettings:
         except Exception as e:
             logger.error(f"Failed to create settings directory: {e}")
     
-    def load(self) -> Dict[str, Any]:
-        """Get user settings or defaults if nothing saved yet"""
-        try:
-            if self.settings_file.exists():
-                with open(self.settings_file, "r", encoding="utf-8") as f:
-                    settings = json.load(f)
-                    logger.info(f"Loaded settings for user {self.user_id}: {settings}")
-                    return settings
-        except Exception as e:
-            logger.error(f"Failed to load settings for user {self.user_id}: {e}")
-        
-        # First time user or corrupted file - use defaults
+    def _get_complete_defaults(self) -> Dict[str, Any]:
+        """Get complete default settings for all configurable options"""
         return {
             "voice": CONFIG.default_voice,
             "role": CONFIG.default_role,
             "speed": CONFIG.default_speed,
+            "auto_format": CONFIG.enable_auto_format,
+            "use_markup": CONFIG.use_tts_markup,
         }
+    
+    def load(self) -> Dict[str, Any]:
+        """Get user settings or defaults if nothing saved yet.
+        
+        Always returns a complete settings dictionary with all expected keys,
+        using saved values where available and global defaults for missing keys.
+        """
+        # Start with complete defaults
+        defaults = self._get_complete_defaults()
+        
+        try:
+            if self.settings_file.exists():
+                with open(self.settings_file, "r", encoding="utf-8") as f:
+                    saved_settings = json.load(f)
+                    logger.info(f"Loaded settings for user {self.user_id}: {saved_settings}")
+                    
+                    # Merge saved settings with defaults - saved settings override defaults
+                    # but defaults ensure all keys are present (e.g., for older saved files)
+                    merged_settings = {**defaults, **saved_settings}
+                    return merged_settings
+        except Exception as e:
+            logger.error(f"Failed to load settings for user {self.user_id}: {e}")
+        
+        # First time user or corrupted file - return complete defaults
+        logger.info(f"Using default settings for user {self.user_id}: {defaults}")
+        return defaults
     
     def save(self, settings: Dict[str, Any]) -> bool:
         """Write settings to disk"""
@@ -79,10 +97,6 @@ class UserSettings:
         return self.save(settings)
     
     def reset_to_defaults(self) -> bool:
-        """Start with default settings"""
-        default_settings = {
-            "voice": CONFIG.default_voice,
-            "role": CONFIG.default_role,
-            "speed": CONFIG.default_speed,
-        }
+        """Reset all settings to their global default values"""
+        default_settings = self._get_complete_defaults()
         return self.save(default_settings)

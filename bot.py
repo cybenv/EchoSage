@@ -294,7 +294,8 @@ async def set_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def set_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show available emotions for current voice"""
-    current_voice = context.user_data.get("voice", CONFIG.default_voice)
+    user_settings = UserSettings(update.effective_user.id)
+    current_voice = user_settings.get("voice", CONFIG.default_voice)
     available_roles = VOICE_ROLE_MAP.get(current_voice, ["neutral"])
     if not available_roles:
         available_roles = ["neutral"]
