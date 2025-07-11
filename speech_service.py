@@ -32,7 +32,7 @@ class TTSRequest:
     lang: str = "ru-RU"
     format: str = "oggopus"
     sample_rate_hz: int = 48000  # only matters for raw formats like lpcm
-    speed: str | None = None  # "0.8", "1.0", "1.2"
+    speed: str | None = None  # "0.8", "1.0", "1.6"
     use_markup: bool = CONFIG.use_tts_markup  # Enable TTS v3 markup by default
     auto_format: bool = CONFIG.enable_auto_format  # Enable GPT formatting
 

@@ -17,6 +17,18 @@ GPT_API_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
 class TTSPreprocessor:
     """Formats Russian text for Yandex TTS v3 using AI and rule-based processing"""
     
+    # Regex patterns as class constants to follow DRY principle
+    SILENCE_PATTERN = r'sil<\[\d+\]>'
+    SILENCE_CAPTURE_PATTERN = r'sil<\[(\d+)\]>'
+    SENTENCE_END_PATTERN = r'([.!?])\s+'
+    SEMICOLON_PATTERN = r';\s+'
+    CONJUNCTION_PATTERN = r',\s+(но|а|однако|хотя|чтобы|если|когда|пока|после того как)\s+'
+    INTRO_PHRASE_PATTERN = r'^(Когда|После того как|Если|Хотя|Несмотря на то что)[^,]+,\s+'
+    MULTIPLE_SPACES_PATTERN = r'\s+'
+    SSML_TAG_PATTERN = r'<[^>]+>'
+    CONSECUTIVE_SILENCE_PATTERN = r'sil<\[\d+\]>\s*sil<\[\d+\]>'
+    LEADING_SILENCE_PATTERN = r'^sil<\[\d+\]>'
+    
     def __init__(self, api_key: Optional[str] = None):
         """Initialize the preprocessor with API credentials.
         
@@ -31,8 +43,8 @@ class TTSPreprocessor:
         
         # Simple punctuation rules for basic processing
         self.simple_rules: Dict[str, str] = {
-            r"([.!?])\s+": r"\1 sil<[300]> ",  # Add pause after sentence ending punctuation
-            r";\s+": r"; sil<[200]> ",  # Pause after semicolon
+            self.SENTENCE_END_PATTERN: r"\1 sil<[300]> ",  # Add pause after sentence ending punctuation
+            self.SEMICOLON_PATTERN: r"; sil<[200]> ",  # Pause after semicolon
             r"([,:])\s+": r"\1 ",  # Keep comma and colon spacing
             r"—\s*": r" sil<[200]> ",  # Pause for em dash
             r"\s+-\s+": r" sil<[200]> ",  # Pause for spaced hyphen
@@ -68,12 +80,10 @@ class TTSPreprocessor:
     
     def _clean_text(self, text: str) -> str:
         """Remove any existing TTS markup from text"""
-        # Remove existing pauses
-        text = re.sub(r'sil<\[\d+\]>', '', text)
-        # Remove silence markers
-        text = re.sub(r'sil<\[\d+\]>', '', text)
+        # Remove existing silence markers
+        text = re.sub(self.SILENCE_PATTERN, '', text)
         # Normalize whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
+        text = re.sub(self.MULTIPLE_SPACES_PATTERN, ' ', text).strip()
         return text
     
     def _is_complex_text(self, text: str) -> bool:
@@ -163,21 +173,19 @@ class TTSPreprocessor:
         formatted: str = text
         
         # Add pauses after sentence endings
-        formatted = re.sub(r'([.!?])\s+', r'\1 sil<[300]> ', formatted)
+        formatted = re.sub(self.SENTENCE_END_PATTERN, r'\1 sil<[300]> ', formatted)
         
         # Add pauses after semicolons  
-        formatted = re.sub(r';\s+', r'; sil<[200]> ', formatted)
+        formatted = re.sub(self.SEMICOLON_PATTERN, r'; sil<[200]> ', formatted)
         
         # Add pauses after conjunctions with commas
-        conjunction_pattern: str = r',\s+(но|а|однако|хотя|чтобы|если|когда|пока|после того как)\s+'
-        formatted = re.sub(conjunction_pattern, r', sil<[200]> \1 ', formatted)
+        formatted = re.sub(self.CONJUNCTION_PATTERN, r', sil<[200]> \1 ', formatted)
         
         # Add pauses after long introductory phrases
-        intro_pattern: str = r'^(Когда|После того как|Если|Хотя|Несмотря на то что)[^,]+,\s+'
-        formatted = re.sub(intro_pattern, lambda m: m.group(0).rstrip() + ' sil<[200]> ', formatted)
+        formatted = re.sub(self.INTRO_PHRASE_PATTERN, lambda m: m.group(0).rstrip() + ' sil<[200]> ', formatted)
         
         # Clean up multiple spaces
-        formatted = re.sub(r'\s+', ' ', formatted).strip()
+        formatted = re.sub(self.MULTIPLE_SPACES_PATTERN, ' ', formatted).strip()
         
         return formatted
     
@@ -185,21 +193,21 @@ class TTSPreprocessor:
         """Validate that markup is correctly formatted"""
         try:
             # First, remove valid TTS markup to check for SSML
-            temp_text: str = re.sub(r'sil<\[\d+\]>', '', text)
+            temp_text: str = re.sub(self.SILENCE_PATTERN, '', text)
             
             # Check for invalid SSML tags (not applicable for v3)
-            if re.search(r'<[^>]+>', temp_text):
+            if re.search(self.SSML_TAG_PATTERN, temp_text):
                 return False
             
             # Check silence markers are properly formatted
-            silence_pattern: str = r'sil<\[(\d+)\]>'  
+            silence_pattern: str = self.SILENCE_CAPTURE_PATTERN  
             for match in re.finditer(silence_pattern, text):
                 duration: int = int(match.group(1))
                 if duration < 100 or duration > 5000:
                     return False
             
             # Check that sil<[t]> markers don't appear in invalid positions
-            if re.search(r'sil<\[\d+\]>\s*sil<\[\d+\]>', text) or re.search(r'^sil<\[\d+\]>', text):
+            if re.search(self.CONSECUTIVE_SILENCE_PATTERN, text) or re.search(self.LEADING_SILENCE_PATTERN, text):
                 return False
             
             return True

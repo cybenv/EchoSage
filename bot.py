@@ -58,7 +58,7 @@ ROLE_NAMES_RU: Dict[str, str] = {
 SPEED_NAMES_RU: Dict[str, str] = {
     "0.8": "Медленная",
     "1.0": "Обычная",
-    "1.2": "Быстрая",
+    "1.6": "Быстрая",
 }
 
 # Used for inline messages when settings change
@@ -149,7 +149,7 @@ ROLES = [
     "whisper",
 ]
 
-SPEEDS = ["0.8", "1.0", "1.2"]
+SPEEDS = ["0.8", "1.0", "1.6"]
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -204,13 +204,76 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except Exception as exc:
         logger.exception("TTS failed")
         error_msg = str(exc)
+        
+        # Specific error handling
         if "Too long text" in error_msg:
             await message.reply_text(
-                "Текст слишком длинный. Попробуй отправить более короткое сообщение.\n"
-                "Если ты хотела использовать SSML-разметку, используй команду /speak_ssml"
+                "📝 <b>Текст слишком длинный</b>\n\n"
+                "Попробуй разделить сообщение на несколько частей.\n"
+                "Максимальная длина: ~5000 символов",
+                parse_mode=ParseMode.HTML
+            )
+        elif "400" in error_msg and settings.get("auto_format", CONFIG.enable_auto_format):
+            # Try again without formatting if it was a formatting error
+            logger.info("Retrying without formatting due to 400 error")
+            await message.reply_text(
+                "⚠️ Возникла проблема с расширенным форматированием.\n"
+                "Повторяю синтез без форматирования...",
+                parse_mode=ParseMode.HTML
+            )
+            try:
+                audio_bytes = await speech_service.synthesize(
+                    text=text,
+                    voice=settings.get("voice"),
+                    role=settings.get("role"),
+                    speed=settings.get("speed"),
+                    auto_format=False,  # Disable formatting
+                    use_markup=False,   # Also disable markup to be safe
+                )
+                await message.reply_voice(audio_bytes)
+                await message.reply_text(
+                    "✅ Аудио создано без автоматического форматирования.\n"
+                    "Чтобы отключить форматирование насовсем, используй /toggle_format",
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as retry_exc:
+                logger.exception("Retry without formatting also failed")
+                await message.reply_text(
+                    "❌ <b>Ошибка синтеза речи</b>\n\n"
+                    "Не удалось создать аудио даже без форматирования.\n"
+                    "Попробуй упростить текст или обратись позже.",
+                    parse_mode=ParseMode.HTML
+                )
+        elif "UNAUTHORIZED" in error_msg or "401" in error_msg:
+            await message.reply_text(
+                "🔐 <b>Ошибка авторизации</b>\n\n"
+                "Проблема с API ключом. Обратись к администратору бота.",
+                parse_mode=ParseMode.HTML
+            )
+        elif "timeout" in error_msg.lower():
+            await message.reply_text(
+                "⏱ <b>Превышено время ожидания</b>\n\n"
+                "Сервер не успел обработать запрос. Попробуй ещё раз.",
+                parse_mode=ParseMode.HTML
+            )
+        elif "SSML not supported in v3" in error_msg:
+            await message.reply_text(
+                "📝 <b>Обнаружена SSML-разметка</b>\n\n"
+                "Для синтеза с SSML используй команду:\n"
+                "<code>/speak_ssml &lt;speak&gt;твой текст&lt;/speak&gt;</code>",
+                parse_mode=ParseMode.HTML
             )
         else:
-            await message.reply_text("Ошибка при обращении к SpeechKit API. Попробуй позже.")
+            # Generic error but with more context
+            await message.reply_text(
+                "❌ <b>Ошибка при синтезе речи</b>\n\n"
+                f"Детали: <code>{error_msg[:200]}</code>\n\n"
+                "Попробуй:\n"
+                "• Упростить текст\n"
+                "• Отключить форматирование: /toggle_format\n"
+                "• Повторить попытку позже",
+                parse_mode=ParseMode.HTML
+            )
 
 
 async def speak_ssml(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -257,16 +320,46 @@ async def speak_ssml(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         error_msg = str(exc)
         if "YANDEX_FOLDER_ID" in error_msg:
             await message.reply_text(
+                "🔧 <b>Требуется настройка</b>\n\n"
                 "Для использования SSML необходимо указать YANDEX_FOLDER_ID в файле .env\n"
-                "Получить folder_id следует в консоли Yandex Cloud."
+                "Получить folder_id можно в консоли Yandex Cloud.",
+                parse_mode=ParseMode.HTML
             )
         elif "400" in error_msg:
             await message.reply_text(
-                "Ошибка в SSML-разметке. Проверь правильность синтаксиса.\n"
-                "Подробнее о SSML: https://yandex.cloud/ru/docs/speechkit/tts/ssml"
+                "❌ <b>Ошибка в SSML-разметке</b>\n\n"
+                "Проверь правильность синтаксиса. Возможные причины:\n"
+                "• Незакрытые теги\n"
+                "• Неверные атрибуты\n"
+                "• Недопустимые элементы\n\n"
+                "📚 Документация: https://yandex.cloud/ru/docs/speechkit/tts/ssml",
+                parse_mode=ParseMode.HTML
+            )
+        elif "UNAUTHORIZED" in error_msg or "401" in error_msg:
+            await message.reply_text(
+                "🔐 <b>Ошибка авторизации</b>\n\n"
+                "Проблема с API ключом или folder_id. Обратись к администратору бота.",
+                parse_mode=ParseMode.HTML
+            )
+        elif "timeout" in error_msg.lower():
+            await message.reply_text(
+                "⏱ <b>Превышено время ожидания</b>\n\n"
+                "Сервер не успел обработать запрос. Попробуй упростить SSML или повтори позже.",
+                parse_mode=ParseMode.HTML
+            )
+        elif "Too long" in error_msg:
+            await message.reply_text(
+                "📝 <b>SSML слишком длинный</b>\n\n"
+                "Попробуй сократить текст или разделить на части.",
+                parse_mode=ParseMode.HTML
             )
         else:
-            await message.reply_text("Ошибка при обращении к SpeechKit API. Попробуй позже.")
+            await message.reply_text(
+                "❌ <b>Ошибка при синтезе SSML</b>\n\n"
+                f"Детали: <code>{error_msg[:200]}</code>\n\n"
+                "Проверь корректность разметки и попробуй ещё раз.",
+                parse_mode=ParseMode.HTML
+            )
 
 
 def _build_keyboard(options: list[str], prefix: str) -> InlineKeyboardMarkup:
