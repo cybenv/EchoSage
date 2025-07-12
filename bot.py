@@ -72,16 +72,10 @@ speech_service: Final[SpeechService] = SpeechService()
 
 WELCOME = (
     "Привет, Лен! Отправь мне текст на русском, и я пришлю ответ в виде голосового сообщения.\n\n"
-    "Доступные команды:\n"
-    "- /start — краткая справка\n"
+    "⚙️ <b>Настройки:</b> /settings — удобное меню для настройки голоса, эмоций и скорости\n\n"
+    "Другие команды:\n"
     "- /help — подробная помощь и примеры\n"
-    "- /set_voice — выбрать голос\n"
-    "- /set_role — выбрать эмоцию\n"
-    "- /set_speed — выбрать скорость\n"
-    "- /settings — показать текущие настройки\n"
-    "- /reset — сбросить настройки по умолчанию\n"
     "- /speak_ssml — синтез речи с SSML-разметкой\n"
-    "- /toggle_format — включить/выключить автоформатирование\n"
     "- /demo_markup — примеры TTS разметки"
 )
 
@@ -89,7 +83,13 @@ HELP = (
     "<b>Как мною пользоваться</b>\n\n"
     "1. Просто пришли мне сообщение на русском.\n"
     "2. Я преобразую текст в речь и пришлю его в виде голосового сообщения.\n\n"
-    "<b>Параметры синтеза</b>\n\n"
+    "<b>⚙️ Настройки</b>\n\n"
+    "Используй команду <b>/settings</b> для открытия интерактивного меню настроек.\n"
+    "В меню ты можешь:\n"
+    "• Выбрать голос и эмоцию\n"
+    "• Изменить скорость речи\n"
+    "• Включить/выключить автоформатирование\n"
+    "• Сбросить настройки по умолчанию\n\n"
     f"Голос по умолчанию: <code>{VOICE_NAMES_RU.get(CONFIG.default_voice, CONFIG.default_voice)}</code>\n"
     f"Эмоция по умолчанию: <code>{ROLE_NAMES_RU.get(CONFIG.default_role, CONFIG.default_role) if CONFIG.default_role else '—'}</code>\n"
     f"Скорость по умолчанию: <code>{SPEED_NAMES_RU.get(CONFIG.default_speed, CONFIG.default_speed)}</code>\n\n"
@@ -98,7 +98,7 @@ HELP = (
     "Используй команду /speak_ssml для синтеза с разметкой SSML.\n"
     "Пример: <code>/speak_ssml &lt;speak&gt;Привет, &lt;break time=\"500ms\"/&gt; мир!&lt;/speak&gt;</code>\n\n"
     "Дополнительные команды:\n"
-    "/set_voice, /set_role, /set_speed, /settings, /reset, /speak_ssml, /toggle_format, /demo_markup"
+    "/settings, /speak_ssml, /demo_markup"
 )
 
 # All available voices from Yandex SpeechKit v3
@@ -154,7 +154,7 @@ SPEEDS = ["0.8", "1.0", "1.6"]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message"""
-    await update.message.reply_text(WELCOME)
+    await update.message.reply_text(WELCOME, parse_mode=ParseMode.HTML)
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -380,6 +380,65 @@ def _build_keyboard(options: list[str], prefix: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def _build_settings_menu(user_id: int) -> InlineKeyboardMarkup:
+    """Build the main settings menu with current values"""
+    user_settings = UserSettings(user_id)
+    settings = user_settings.load()
+    
+    voice = settings.get("voice", CONFIG.default_voice)
+    role = settings.get("role", CONFIG.default_role)
+    speed = settings.get("speed", CONFIG.default_speed)
+    auto_format = settings.get("auto_format", CONFIG.enable_auto_format)
+    
+    # Russian names for display
+    voice_ru = VOICE_NAMES_RU.get(voice, voice)
+    role_ru = ROLE_NAMES_RU.get(role, role) if role else "—"
+    speed_ru = SPEED_NAMES_RU.get(speed, speed)
+    format_status = "✅ Вкл" if auto_format else "❌ Выкл"
+    
+    # Build menu text
+    menu_text = (
+        "<b>⚙️ Настройки бота</b>\n\n"
+        f"🎤 <b>Голос:</b> {voice_ru}\n"
+        f"🎭 <b>Эмоция:</b> {role_ru}\n"
+        f"⚡ <b>Скорость:</b> {speed_ru}\n"
+        f"🤖 <b>Автоформатирование:</b> {format_status}\n"
+    )
+    
+    # Create buttons
+    buttons = [
+        [InlineKeyboardButton("🎤 Сменить голос", callback_data="menu:voice")],
+        [InlineKeyboardButton("🎭 Сменить эмоцию", callback_data="menu:role")],
+        [InlineKeyboardButton("⚡ Сменить скорость", callback_data="menu:speed")],
+        [InlineKeyboardButton(f"🤖 Автоформатирование: {format_status}", callback_data="menu:toggle_format")],
+        [InlineKeyboardButton("🔄 Сбросить по умолчанию", callback_data="menu:reset")],
+    ]
+    
+    return InlineKeyboardMarkup(buttons), menu_text
+
+
+def _build_keyboard_with_back(options: list[str], prefix: str, back_data: str = "menu:main") -> InlineKeyboardMarkup:
+    """Build keyboard with Russian labels and back button"""
+    # Map internal names to Russian for display
+    if prefix == "voice":
+        buttons = [InlineKeyboardButton(VOICE_NAMES_RU.get(opt, opt), callback_data=f"{prefix}:{opt}") for opt in options]
+    elif prefix == "role":
+        buttons = [InlineKeyboardButton(ROLE_NAMES_RU.get(opt, opt), callback_data=f"{prefix}:{opt}") for opt in options]
+    elif prefix == "speed":
+        buttons = [InlineKeyboardButton(SPEED_NAMES_RU.get(opt, opt), callback_data=f"{prefix}:{opt}") for opt in options]
+    else:
+        buttons = [InlineKeyboardButton(opt, callback_data=f"{prefix}:{opt}") for opt in options]
+    
+    rows: list[list[InlineKeyboardButton]] = []
+    for i in range(0, len(buttons), 3):
+        rows.append(buttons[i : i + 3])
+    
+    # Add back button
+    rows.append([InlineKeyboardButton("⬅️ Назад в меню", callback_data=back_data)])
+    
+    return InlineKeyboardMarkup(rows)
+
+
 async def set_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Let user pick a voice"""
     await update.message.reply_text("Выбери голос:", reply_markup=_build_keyboard(VOICES, "voice"))
@@ -461,30 +520,15 @@ async def demo_markup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show current user settings"""
-    user_settings = UserSettings(update.effective_user.id)
-    settings = user_settings.load()
+    """Show interactive settings menu"""
+    user_id = update.effective_user.id
+    keyboard, menu_text = _build_settings_menu(user_id)
     
-    voice = settings.get("voice", CONFIG.default_voice)
-    role = settings.get("role", CONFIG.default_role)
-    speed = settings.get("speed", CONFIG.default_speed)
-    auto_format = settings.get("auto_format", CONFIG.enable_auto_format)
-    use_markup = settings.get("use_markup", CONFIG.use_tts_markup)
-    
-    # Russian names for display
-    voice_ru = VOICE_NAMES_RU.get(voice, voice)
-    role_ru = ROLE_NAMES_RU.get(role, role) if role else "—"
-    speed_ru = SPEED_NAMES_RU.get(speed, speed)
-    
-    msg = (
-        "<b>Текущие настройки</b>\n"
-        f"Голос: <code>{voice_ru}</code>\n"
-        f"Эмоция: <code>{role_ru}</code>\n"
-        f"Скорость: <code>{speed_ru}</code>\n"
-        f"Автоформатирование: <code>{'✅ Вкл' if auto_format else '❌ Выкл'}</code>\n"
-        f"TTS разметка: <code>{'✅ Вкл' if use_markup else '❌ Выкл'}</code>"
+    await update.message.reply_text(
+        menu_text,
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML
     )
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 
 async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -522,14 +566,80 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
         
     key, value = data.split(":", 1)
+    
+    # Handle main menu navigation
+    if key == "menu":
+        if value == "main":
+            # Return to main settings menu
+            user_id = update.effective_user.id
+            keyboard, menu_text = _build_settings_menu(user_id)
+            await query.edit_message_text(menu_text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            return
+        elif value == "voice":
+            # Show voice selection
+            await query.edit_message_text(
+                "🎤 <b>Выберите голос:</b>",
+                reply_markup=_build_keyboard_with_back(VOICES, "voice"),
+                parse_mode=ParseMode.HTML
+            )
+            return
+        elif value == "role":
+            # Show role selection for current voice
+            user_settings = UserSettings(update.effective_user.id)
+            current_voice = user_settings.get("voice", CONFIG.default_voice)
+            available_roles = VOICE_ROLE_MAP.get(current_voice, ["neutral"])
+            if not available_roles:
+                available_roles = ["neutral"]
+            
+            voice_ru = VOICE_NAMES_RU.get(current_voice, current_voice)
+            await query.edit_message_text(
+                f"🎭 <b>Выберите эмоцию для голоса {voice_ru}:</b>",
+                reply_markup=_build_keyboard_with_back(available_roles, "role"),
+                parse_mode=ParseMode.HTML
+            )
+            return
+        elif value == "speed":
+            # Show speed selection
+            await query.edit_message_text(
+                "⚡ <b>Выберите скорость речи:</b>",
+                reply_markup=_build_keyboard_with_back(SPEEDS, "speed"),
+                parse_mode=ParseMode.HTML
+            )
+            return
+        elif value == "toggle_format":
+            # Toggle auto-formatting
+            user_settings = UserSettings(update.effective_user.id)
+            settings = user_settings.load()
+            current = settings.get("auto_format", CONFIG.enable_auto_format)
+            new_state = not current
+            user_settings.update("auto_format", new_state)
+            
+            # Return to updated menu
+            keyboard, menu_text = _build_settings_menu(update.effective_user.id)
+            await query.edit_message_text(menu_text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            return
+        elif value == "reset":
+            # Reset all settings
+            user_settings = UserSettings(update.effective_user.id)
+            if user_settings.reset_to_defaults():
+                # Show confirmation and return to updated menu
+                keyboard, menu_text = _build_settings_menu(update.effective_user.id)
+                await query.edit_message_text(
+                    "✅ <b>Настройки сброшены!</b>\n\n" + menu_text,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await query.edit_message_text("❌ Ошибка при сбросе настроек. Попробуйте позже.")
+            return
+    
+    # Handle setting changes
     if key in {"voice", "role", "speed"}:
         # Save to persistent storage
         user_settings = UserSettings(update.effective_user.id)
         user_settings.update(key, value)
         
         # Get Russian name for confirmation message
-        setting_name_ru = SETTING_NAMES_RU.get(key, key)
-        
         if key == "voice":
             display_value = VOICE_NAMES_RU.get(value, value)
         elif key == "role":
@@ -539,15 +649,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             display_value = value
             
-        await query.edit_message_text(f"Ты выбрала {setting_name_ru}: {display_value}")
-
-        # When voice changes, reset role/speed and ask for new role
+        # When voice changes, reset role and ask for new role
         if key == "voice":
-            # Reset to defaults to avoid incompatible combinations
-            user_settings.update_multiple({
-                "role": CONFIG.default_role,
-                "speed": CONFIG.default_speed
-            })
+            # Reset role to default to avoid incompatible combinations
+            user_settings.update("role", CONFIG.default_role)
 
             compatible_roles = VOICE_ROLE_MAP.get(value, ["neutral"])
 
@@ -556,11 +661,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if current_role not in compatible_roles:
                 user_settings.update("role", compatible_roles[0])
 
-            # Ask for emotion selection
+            # Show role selection for new voice
             voice_ru = VOICE_NAMES_RU.get(value, value)
-            await query.message.reply_text(
-                f"Эмоция для голоса '{voice_ru}':",
-                reply_markup=_build_keyboard(compatible_roles, "role"),
+            await query.edit_message_text(
+                f"✅ Голос изменен на: <b>{display_value}</b>\n\n"
+                f"🎭 <b>Выберите эмоцию для голоса {voice_ru}:</b>",
+                reply_markup=_build_keyboard_with_back(compatible_roles, "role"),
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            # Return to main menu with confirmation
+            keyboard, menu_text = _build_settings_menu(update.effective_user.id)
+            setting_name_ru = SETTING_NAMES_RU.get(key, key)
+            
+            await query.edit_message_text(
+                f"✅ <b>{setting_name_ru.capitalize()} изменен{'а' if key == 'speed' else ''} на: {display_value}</b>\n\n" + menu_text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML
             )
 
 
