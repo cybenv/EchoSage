@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Final, Any, Dict, List
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -67,6 +67,23 @@ SETTING_NAMES_RU: Dict[str, str] = {
     "role": "эмоцию",
     "speed": "скорость",
 }
+
+# Progress animation frames
+PROGRESS_FRAMES = [
+    "🔄",
+    "⏳",
+    "🔄",
+    "⏳",
+    "🔄"
+]
+
+VOICE_PROGRESS_FRAMES = [
+    "🎤",
+    "🎵",
+    "🔊",
+    "🎶",
+    "🎧"
+]
 
 speech_service: Final[SpeechService] = SpeechService()
 
@@ -152,6 +169,59 @@ ROLES = [
 SPEEDS = ["0.8", "1.0", "1.6"]
 
 
+class ProgressIndicator:
+    """Animated progress indicator for long-running operations"""
+    
+    def __init__(self, message: Message, text: str, frames: List[str] = None):
+        self.message = message
+        self.base_text = text
+        self.frames = frames or PROGRESS_FRAMES
+        self.current_frame = 0
+        self.is_running = False
+        self._task = None
+    
+    async def start(self) -> None:
+        """Start the progress animation"""
+        self.is_running = True
+        self._task = asyncio.create_task(self._animate())
+    
+    async def stop(self) -> None:
+        """Stop the progress animation"""
+        self.is_running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+    
+    async def _animate(self) -> None:
+        """Animate the progress indicator"""
+        try:
+            while self.is_running:
+                frame = self.frames[self.current_frame]
+                try:
+                    await self.message.edit_text(f"{frame} {self.base_text}")
+                except Exception as e:
+                    # Ignore edit errors (message might be deleted or rate-limited)
+                    logger.debug(f"Progress animation edit error: {e}")
+                
+                self.current_frame = (self.current_frame + 1) % len(self.frames)
+                await asyncio.sleep(0.8)  # Change frame every 800ms
+                
+        except asyncio.CancelledError:
+            pass
+    
+    async def update_text(self, new_text: str) -> None:
+        """Update the progress text"""
+        self.base_text = new_text
+        frame = self.frames[self.current_frame]
+        try:
+            await self.message.edit_text(f"{frame} {new_text}")
+        except Exception as e:
+            logger.debug(f"Progress text update error: {e}")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message"""
     await update.message.reply_text(WELCOME, parse_mode=ParseMode.HTML)
@@ -163,7 +233,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Convert text messages to speech"""
+    """Convert text messages to speech with animated progress indicators"""
     message = update.message
     assert message
 
@@ -185,13 +255,47 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await message.reply_text("Пожалуйста, отправь сообщение на русском.")
         return
     
-    await message.chat.send_action("upload_voice")
+    # Initial typing indicator
+    await message.chat.send_action("typing")
+    
+    # Show initial progress message
+    progress_msg = await message.reply_text("🔄 Обрабатываю текст...")
     
     try:
         # Saved preferences
         user_settings = UserSettings(update.effective_user.id)
         settings = user_settings.load()
         
+        # Determine if we need formatting (longer operations)
+        text_length = len(text)
+        needs_formatting = settings.get("auto_format", CONFIG.enable_auto_format)
+        
+        # Start progress animation
+        if text_length > 100 or needs_formatting:
+            # For longer texts or formatting, show animated progress
+            progress_indicator = ProgressIndicator(
+                progress_msg, 
+                "Анализирую текст для естественного звучания...", 
+                PROGRESS_FRAMES
+            )
+            await progress_indicator.start()
+        else:
+            # For short texts, just update once
+            await progress_msg.edit_text("🔄 Готовлю синтез речи...")
+        
+        # Send voice upload action
+        await message.chat.send_action("upload_voice")
+        
+        # Update progress for synthesis phase
+        if text_length > 100 or needs_formatting:
+            await progress_indicator.update_text("Синтезирую речь...")
+            # Change to voice frames
+            progress_indicator.frames = VOICE_PROGRESS_FRAMES
+            progress_indicator.current_frame = 0
+        else:
+            await progress_msg.edit_text("🎤 Синтезирую речь...")
+        
+        # Perform TTS synthesis
         audio_bytes = await speech_service.synthesize(
             text=text,
             voice=settings.get("voice"),
@@ -200,15 +304,27 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             auto_format=settings.get("auto_format"),
             use_markup=settings.get("use_markup"),
         )
+        
+        # Stop progress animation
+        if text_length > 100 or needs_formatting:
+            await progress_indicator.stop()
+        
+        # Delete progress message and send voice
+        await progress_msg.delete()
         await message.reply_voice(audio_bytes)
+        
     except Exception as exc:
+        # Stop progress animation if running
+        if 'progress_indicator' in locals():
+            await progress_indicator.stop()
+        
         logger.exception("TTS failed")
         error_msg = str(exc)
         
-        # Specific error handling
+        # Specific error handling with progress message update
         if "Too long text" in error_msg:
-            await message.reply_text(
-                "📝 <b>Текст слишком длинный</b>\n\n"
+            await progress_msg.edit_text(
+                "❌ <b>Текст слишком длинный</b>\n\n"
                 "Попробуй разделить сообщение на несколько частей.\n"
                 "Максимальная длина: ~5000 символов",
                 parse_mode=ParseMode.HTML
@@ -216,12 +332,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         elif "400" in error_msg and settings.get("auto_format", CONFIG.enable_auto_format):
             # Try again without formatting if it was a formatting error
             logger.info("Retrying without formatting due to 400 error")
-            await message.reply_text(
-                "⚠️ Возникла проблема с расширенным форматированием.\n"
-                "Повторяю синтез без форматирования...",
-                parse_mode=ParseMode.HTML
-            )
+            await progress_msg.edit_text("⚠️ Повторяю без форматирования...")
+            
             try:
+                await message.chat.send_action("upload_voice")
                 audio_bytes = await speech_service.synthesize(
                     text=text,
                     voice=settings.get("voice"),
@@ -230,6 +344,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     auto_format=False,  # Disable formatting
                     use_markup=False,   # Also disable markup to be safe
                 )
+                await progress_msg.delete()
                 await message.reply_voice(audio_bytes)
                 await message.reply_text(
                     "✅ Аудио создано без автоматического форматирования.\n"
@@ -238,26 +353,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 )
             except Exception as retry_exc:
                 logger.exception("Retry without formatting also failed")
-                await message.reply_text(
+                await progress_msg.edit_text(
                     "❌ <b>Ошибка синтеза речи</b>\n\n"
                     "Не удалось создать аудио даже без форматирования.\n"
                     "Попробуй упростить текст или обратись позже.",
                     parse_mode=ParseMode.HTML
                 )
         elif "UNAUTHORIZED" in error_msg or "401" in error_msg:
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "🔐 <b>Ошибка авторизации</b>\n\n"
                 "Проблема с API ключом. Обратись к администратору бота.",
                 parse_mode=ParseMode.HTML
             )
         elif "timeout" in error_msg.lower():
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "⏱ <b>Превышено время ожидания</b>\n\n"
                 "Сервер не успел обработать запрос. Попробуй ещё раз.",
                 parse_mode=ParseMode.HTML
             )
         elif "SSML not supported in v3" in error_msg:
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "📝 <b>Обнаружена SSML-разметка</b>\n\n"
                 "Для синтеза с SSML используй команду:\n"
                 "<code>/speak_ssml &lt;speak&gt;твой текст&lt;/speak&gt;</code>",
@@ -265,7 +380,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
         else:
             # Generic error but with more context
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "❌ <b>Ошибка при синтезе речи</b>\n\n"
                 f"Детали: <code>{error_msg[:200]}</code>\n\n"
                 "Попробуй:\n"
@@ -277,7 +392,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def speak_ssml(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle SSML synthesis command"""
+    """Handle SSML synthesis command with progress indicators"""
     message = update.message
     assert message
     
@@ -301,32 +416,62 @@ async def speak_ssml(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         )
         return
     
-    await message.chat.send_action("upload_voice")
+    # Initial typing indicator
+    await message.chat.send_action("typing")
+    
+    # Show progress message for SSML (always show since SSML is more complex)
+    progress_msg = await message.reply_text("🔄 Обрабатываю SSML-разметку...")
+    
+    # Start progress animation
+    progress_indicator = ProgressIndicator(
+        progress_msg, 
+        "Парсю SSML-разметку...", 
+        PROGRESS_FRAMES
+    )
+    await progress_indicator.start()
     
     try:
         # Saved preferences
         user_settings = UserSettings(update.effective_user.id)
         settings = user_settings.load()
         
+        # Update progress for synthesis phase
+        await message.chat.send_action("upload_voice")
+        await progress_indicator.update_text("Синтезирую SSML в речь...")
+        progress_indicator.frames = VOICE_PROGRESS_FRAMES
+        progress_indicator.current_frame = 0
+        
+        # Perform SSML synthesis
         audio_bytes = await speech_service.synthesize(
             ssml=ssml_text,
             voice=settings.get("voice"),
             role=settings.get("role"),
             speed=settings.get("speed"),
         )
+        
+        # Stop progress animation
+        await progress_indicator.stop()
+        
+        # Delete progress message and send voice
+        await progress_msg.delete()
         await message.reply_voice(audio_bytes)
+        
     except Exception as exc:
+        # Stop progress animation
+        await progress_indicator.stop()
+        
         logger.exception("SSML TTS failed")
         error_msg = str(exc)
+        
         if "YANDEX_FOLDER_ID" in error_msg:
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "🔧 <b>Требуется настройка</b>\n\n"
                 "Для использования SSML необходимо указать YANDEX_FOLDER_ID в файле .env\n"
                 "Получить folder_id можно в консоли Yandex Cloud.",
                 parse_mode=ParseMode.HTML
             )
         elif "400" in error_msg:
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "❌ <b>Ошибка в SSML-разметке</b>\n\n"
                 "Проверь правильность синтаксиса. Возможные причины:\n"
                 "• Незакрытые теги\n"
@@ -336,25 +481,25 @@ async def speak_ssml(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 parse_mode=ParseMode.HTML
             )
         elif "UNAUTHORIZED" in error_msg or "401" in error_msg:
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "🔐 <b>Ошибка авторизации</b>\n\n"
                 "Проблема с API ключом или folder_id. Обратись к администратору бота.",
                 parse_mode=ParseMode.HTML
             )
         elif "timeout" in error_msg.lower():
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "⏱ <b>Превышено время ожидания</b>\n\n"
                 "Сервер не успел обработать запрос. Попробуй упростить SSML или повтори позже.",
                 parse_mode=ParseMode.HTML
             )
         elif "Too long" in error_msg:
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "📝 <b>SSML слишком длинный</b>\n\n"
                 "Попробуй сократить текст или разделить на части.",
                 parse_mode=ParseMode.HTML
             )
         else:
-            await message.reply_text(
+            await progress_msg.edit_text(
                 "❌ <b>Ошибка при синтезе SSML</b>\n\n"
                 f"Детали: <code>{error_msg[:200]}</code>\n\n"
                 "Проверь корректность разметки и попробуй ещё раз.",
@@ -517,6 +662,226 @@ async def demo_markup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
     
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
+
+async def demo_progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Command to demonstrate different progress indicators"""
+    
+    if not context.args:
+        await update.message.reply_text(
+            "<b>🎯 Демонстрация индикаторов прогресса</b>\n\n"
+            "Используй: <code>/demo_progress [тип]</code>\n\n"
+            "<b>Доступные типы:</b>\n"
+            "• <code>simple</code> - простой прогресс\n"
+            "• <code>animated</code> - анимированный прогресс\n"
+            "• <code>bar</code> - прогресс-бар с процентами\n"
+            "• <code>spinner</code> - многофазный спиннер\n"
+            "• <code>tasks</code> - менеджер задач\n"
+            "• <code>adaptive</code> - адаптивный прогресс\n"
+            "• <code>batch</code> - пакетная обработка\n\n"
+            "<b>Примеры:</b>\n"
+            "<code>/demo_progress bar</code>\n"
+            "<code>/demo_progress spinner</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    
+    progress_type = context.args[0].lower()
+    
+    if progress_type == "simple":
+        await _demo_simple_progress(update.message)
+    elif progress_type == "animated":
+        await _demo_animated_progress(update.message)
+    elif progress_type == "bar":
+        await _demo_progress_bar(update.message)
+    elif progress_type == "spinner":
+        await _demo_spinner_progress(update.message)
+    elif progress_type == "tasks":
+        await _demo_task_progress(update.message)
+    elif progress_type == "adaptive":
+        await _demo_adaptive_progress(update.message)
+    elif progress_type == "batch":
+        await _demo_batch_progress(update.message)
+    else:
+        await update.message.reply_text(
+            f"❌ Неизвестный тип прогресса: <code>{progress_type}</code>\n\n"
+            "Используй <code>/demo_progress</code> без параметров для списка доступных типов.",
+            parse_mode=ParseMode.HTML
+        )
+
+
+async def _demo_simple_progress(message) -> None:
+    """Demo simple progress indicator"""
+    progress_msg = await message.reply_text("⚡ Быстрая операция...")
+    await asyncio.sleep(1)
+    await progress_msg.edit_text("🔄 Обработка...")
+    await asyncio.sleep(1)
+    await progress_msg.edit_text("✅ Готово!")
+
+
+async def _demo_animated_progress(message) -> None:
+    """Demo animated progress indicator"""
+    progress_msg = await message.reply_text("🔄 Анимированный прогресс...")
+    
+    indicator = ProgressIndicator(
+        progress_msg, 
+        "Демонстрация анимации...",
+        PROGRESS_FRAMES
+    )
+    await indicator.start()
+    
+    await asyncio.sleep(3)
+    await indicator.update_text("Меняю тип анимации...")
+    indicator.frames = VOICE_PROGRESS_FRAMES
+    indicator.current_frame = 0
+    
+    await asyncio.sleep(2)
+    await indicator.stop()
+    await progress_msg.edit_text("✅ Анимация завершена!")
+
+
+async def _demo_progress_bar(message) -> None:
+    """Demo progress bar with percentage"""
+    from progress_utils import ProgressBarIndicator
+    
+    progress_msg = await message.reply_text("📊 Подготовка прогресс-бара...")
+    progress_bar = ProgressBarIndicator(progress_msg, 10, "Демо прогресс-бар")
+    
+    await progress_bar.start()
+    
+    steps = [
+        "Инициализация",
+        "Загрузка данных", 
+        "Проверка целостности",
+        "Анализ содержимого",
+        "Обработка",
+        "Форматирование",
+        "Валидация",
+        "Оптимизация",
+        "Финализация",
+        "Завершение"
+    ]
+    
+    for i, step in enumerate(steps):
+        await asyncio.sleep(0.5)
+        await progress_bar.update(i + 1, step)
+    
+    await progress_bar.complete("🎉 Прогресс-бар завершен!")
+
+
+async def _demo_spinner_progress(message) -> None:
+    """Demo multi-phase spinner"""
+    from progress_utils import SpinnerIndicator
+    
+    progress_msg = await message.reply_text("🌀 Подготовка многофазного спиннера...")
+    
+    phases = [
+        {
+            'text': 'Фаза 1: Быстрая обработка',
+            'frames': SpinnerIndicator.SPINNER_FRAMES,
+            'duration': 0.1
+        },
+        {
+            'text': 'Фаза 2: Анализ данных',
+            'frames': SpinnerIndicator.DOTS_FRAMES,
+            'duration': 0.15
+        },
+        {
+            'text': 'Фаза 3: Финальная обработка',
+            'frames': SpinnerIndicator.CLOCK_FRAMES,
+            'duration': 0.2
+        }
+    ]
+    
+    spinner = SpinnerIndicator(progress_msg, phases)
+    await spinner.start()
+    
+    await asyncio.sleep(2)
+    await spinner.next_phase()
+    
+    await asyncio.sleep(2)
+    await spinner.next_phase()
+    
+    await asyncio.sleep(2)
+    await spinner.stop()
+    
+    await progress_msg.edit_text("✅ Многофазный спиннер завершен!")
+
+
+async def _demo_task_progress(message) -> None:
+    """Demo task progress manager"""
+    from progress_utils import TaskProgressManager
+    
+    tasks = [
+        "Получение конфигурации",
+        "Проверка доступности API",
+        "Аутентификация",
+        "Загрузка данных",
+        "Обработка контента",
+        "Применение фильтров",
+        "Сохранение результатов"
+    ]
+    
+    progress_msg = await message.reply_text("📋 Подготовка менеджера задач...")
+    manager = TaskProgressManager(progress_msg, tasks)
+    
+    await manager.start()
+    
+    for i in range(len(tasks)):
+        await asyncio.sleep(0.7)
+        await manager.next_task()
+    
+    await manager.complete("🚀 Все задачи выполнены!")
+
+
+async def _demo_adaptive_progress(message) -> None:
+    """Demo adaptive progress indicator"""
+    from progress_utils import AdaptiveProgressIndicator
+    
+    progress_msg = await message.reply_text("🤖 Запуск адаптивного прогресса...")
+    indicator = AdaptiveProgressIndicator(progress_msg, "Адаптивная обработка")
+    
+    await indicator.start()
+    
+    await asyncio.sleep(3)  # This will trigger upgrade to animated
+    await indicator.update_text("Операция оказалась сложнее...")
+    
+    await asyncio.sleep(2)
+    await indicator.update_text("Почти готово...")
+    
+    await asyncio.sleep(1)
+    await indicator.stop()
+    
+    await progress_msg.edit_text("✅ Адаптивный прогресс завершен!")
+
+
+async def _demo_batch_progress(message) -> None:
+    """Demo batch processing with progress"""
+    from progress_utils import ProgressBarIndicator
+    
+    test_messages = [
+        "Привет, как дела?",
+        "Что нового?",
+        "Расскажи анекдот",
+        "Какая сегодня погода?",
+        "До свидания!"
+    ]
+    
+    progress_msg = await message.reply_text("📦 Запуск пакетной обработки...")
+    progress_bar = ProgressBarIndicator(
+        progress_msg, 
+        len(test_messages), 
+        "Пакетная обработка"
+    )
+    
+    await progress_bar.start()
+    
+    for i, msg in enumerate(test_messages):
+        status = f"Обрабатываю: {msg[:20]}..."
+        await progress_bar.update(i + 1, status)
+        await asyncio.sleep(0.8)
+    
+    await progress_bar.complete(f"📦 Обработано {len(test_messages)} сообщений!")
 
 
 async def settings_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -701,6 +1066,7 @@ def main() -> None:
     application.add_handler(CommandHandler("reset", reset_cmd))
     application.add_handler(CommandHandler("speak_ssml", speak_ssml))
     application.add_handler(CommandHandler("demo_markup", demo_markup))
+    application.add_handler(CommandHandler("demo_progress", demo_progress_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))
@@ -733,6 +1099,7 @@ async def handler(event: dict[str, Any], context: dict[str, Any]) -> dict[str, A
         application.add_handler(CommandHandler("reset", reset_cmd))
         application.add_handler(CommandHandler("speak_ssml", speak_ssml))
         application.add_handler(CommandHandler("demo_markup", demo_markup))
+        application.add_handler(CommandHandler("demo_progress", demo_progress_command))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
         application.add_handler(CallbackQueryHandler(button_handler))
         application.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))
